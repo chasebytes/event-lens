@@ -2,6 +2,8 @@
 
 EventLens is a local Windows Event Log monitor. A standalone worker polls enabled monitoring profiles, persists matching events and collection status in SQLite, and exposes a loopback-only HTTP API. A separate Blazor Server application uses that API to manage profiles and review findings.
 
+The delivered local scope is captured in the [MVP document](docs/mvp.md). The intended household-network outcome is described separately in the [project vision](docs/vision.md).
+
 ## Requirements
 
 - Windows 10/11 or Windows Server
@@ -11,6 +13,12 @@ EventLens is a local Windows Event Log monitor. A standalone worker polls enable
 No database server or external service is required.
 
 ## Run
+
+### Visual Studio
+
+After cloning the repository, open `event-lens.slnx`, select the shared `App` launch profile in the Visual Studio toolbar, and press F5 or Ctrl+F5. The profile starts both `EventLens.Worker` and `EventLens.App`, then opens the UI in the browser.
+
+### Command line
 
 Start the worker first and leave it running:
 

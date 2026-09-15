@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/docs/">
-    <File Path="mvp.md" />
+    <File Path="docs/mvp.md" />
+    <File Path="docs/vision.md" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="EventLens.Core.Tests/EventLens.Core.Tests.csproj" Id="8adab6d9-9930-4600-a512-54ae1c75950e" />

@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "App",
+    "Projects": [
+      {
+        "Path": "EventLens.App\\EventLens.App.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      },
+      {
+        "Path": "EventLens.Worker\\EventLens.Worker.csproj",
+        "Action": "Start",
+        "DebugTarget": "EventLens.Worker"
+      }
+    ]
+  }
+]
