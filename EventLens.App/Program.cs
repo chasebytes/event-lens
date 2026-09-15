@@ -28,7 +28,7 @@ namespace EventLens.App
             app.UseAntiforgery();
 
             app.MapStaticAssets();
-            app.MapRazorComponents<App>()
+            app.MapRazorComponents<Components.App>()
                 .AddInteractiveServerRenderMode();
 
             app.Run();

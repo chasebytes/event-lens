@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/tests/">
+    <Project Path="EventLens.Core.Tests/EventLens.Core.Tests.csproj" Id="8adab6d9-9930-4600-a512-54ae1c75950e" />
+    <Project Path="EventLens.Persistence.Tests/EventLens.Persistence.Tests.csproj" Id="19387f18-f395-4118-9b1c-ab31a14d72ae" />
+    <Project Path="EventLens.Windows.Tests/EventLens.Windows.Tests.csproj" Id="71fa64cc-af49-4787-a6a0-efe4c1fa987c" />
+    <Project Path="EventLens.Worker.Tests/EventLens.Worker.Tests.csproj" Id="3cd60c07-1ad3-4e50-a7d9-0ff1ec8e057e" />
+  </Folder>
   <Project Path="EventLens.App/EventLens.App.csproj" />
   <Project Path="EventLens.Core/EventLens.Core.csproj" />
   <Project Path="EventLens.Persistence/EventLens.Persistence.csproj" />
