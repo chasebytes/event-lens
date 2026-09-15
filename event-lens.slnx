@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="EventLens.App/EventLens.App.csproj" />
+  <Project Path="EventLens.Core/EventLens.Core.csproj" />
+  <Project Path="EventLens.Persistence/EventLens.Persistence.csproj" />
+  <Project Path="EventLens.Windows/EventLens.Windows.csproj" />
+  <Project Path="EventLens.Worker/EventLens.Worker.csproj" />
+</Solution>
