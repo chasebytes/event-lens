@@ -94,3 +94,8 @@ The test suite is intentionally split by purpose. `Unit` tests cover determinist
 dotnet build .\event-lens.slnx
 dotnet test .\event-lens.slnx --no-build
 ```
+
+### Disclaimer
+Artificial intelligence is actively used in the development of this project, including its documentation. Put plainly, I could not iterate as quickly without it. That does not mean the project has been “vibe-coded” or accepted without scrutiny.
+
+An architect or structural engineer must understand how a building is put together to design it responsibly, but they do not personally perform every part of its construction. Much of that work is delegated to others operating within the design and its constraints. I use AI similarly: as a tool for accelerating implementation, exploration, and documentation. The architecture, technical direction, review, and responsibility for the finished work remain my own.
