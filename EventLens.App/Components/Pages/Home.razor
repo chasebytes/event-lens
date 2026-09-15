@@ -1,7 +1,272 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject EventLensApiClient Api
+@inject IOptions<EventLensUiOptions> UiOptions
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Profiles · EventLens</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Local Windows Event Monitor</p>
+        <h1>Monitoring profiles</h1>
+        <p class="lede">The worker collects independently. Closing this browser does not stop collection.</p>
+    </div>
+    <div class="worker-state @(_workerOnline ? "online" : "offline")">
+        <span class="status-dot"></span>
+        <div><strong>Worker @(_workerOnline ? "available" : "unavailable")</strong><small>@_workerDetail</small></div>
+    </div>
+</div>
 
-Welcome to your new app.
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger" role="alert">@_error</div>
+}
+
+<div class="workspace-grid">
+    <section class="panel profile-list">
+        <div class="panel-title">
+            <div><span class="section-number">01</span><h2>Profiles</h2></div>
+            <button class="btn btn-primary" @onclick="NewProfile">New profile</button>
+        </div>
+
+        @if (_loading)
+        {
+            <p class="empty-state">Loading profiles…</p>
+        }
+        else if (_profiles.Count == 0)
+        {
+            <div class="empty-state"><strong>No monitoring profiles yet.</strong><span>Create one to begin collecting new Windows events.</span></div>
+        }
+        else
+        {
+            <div class="profile-cards">
+                @foreach (var profile in _profiles)
+                {
+                    <article class="profile-card @(profile.Id == _editingId ? "selected" : "")">
+                        <button class="card-main" @onclick="() => Edit(profile)">
+                            <span class="profile-name">@profile.Name</span>
+                            <span class="profile-target">@profile.Channel · every @profile.PollingIntervalSeconds s</span>
+                            <StatusBadge Profile="profile" />
+                            @if (!string.IsNullOrWhiteSpace(profile.ErrorMessage))
+                            {
+                                <span class="profile-error">@profile.ErrorMessage</span>
+                            }
+                        </button>
+                        <div class="card-actions">
+                            <a class="btn btn-sm btn-outline-light" href="@($"/profiles/{profile.Id}/findings")">Findings</a>
+                            <button class="btn btn-sm btn-link" @onclick="() => Toggle(profile)">@(profile.IsEnabled ? "Disable" : "Enable")</button>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="panel editor-panel">
+        <div class="panel-title"><div><span class="section-number">02</span><h2>@(_editingId.HasValue ? "Edit profile" : "New profile")</h2></div></div>
+        <div class="field-grid">
+            <label class="field full"><span>Name</span><input class="form-control" @bind="_form.Name" maxlength="120" /></label>
+            <label class="field full"><span>Windows Event Log channel</span><input class="form-control" @bind="_form.Channel" placeholder="Application" maxlength="260" /></label>
+            <label class="field full"><span>Provider <em>optional</em></span><input class="form-control" @bind="_form.Provider" placeholder="Microsoft-Windows-…" maxlength="260" /></label>
+            <label class="field full"><span>Event IDs <em>optional, comma-separated</em></span><input class="form-control" @bind="_form.EventIds" placeholder="1000, 1001" /></label>
+            <label class="field"><span>Polling interval</span><div class="input-group"><input type="number" class="form-control" min="5" max="86400" @bind="_form.PollingIntervalSeconds" /><span class="input-group-text">seconds</span></div></label>
+            <label class="toggle-field"><input type="checkbox" @bind="_form.IsEnabled" /><span>Enabled</span></label>
+        </div>
+
+        <fieldset class="severity-fieldset">
+            <legend>Severity levels</legend>
+            @foreach (var severity in SeverityOptions)
+            {
+                <label class="severity-option @severity.ToString().ToLowerInvariant()">
+                    <input type="checkbox" checked="@HasSeverity(severity)" @onchange="e => SetSeverity(severity, (bool)e.Value!)" />
+                    <span>@severity</span>
+                </label>
+            }
+        </fieldset>
+
+        @if (!string.IsNullOrEmpty(_formError))
+        {
+            <div class="validation-message">@_formError</div>
+        }
+        <div class="editor-actions">
+            <button class="btn btn-primary" disabled="@_saving" @onclick="Save">@(_saving ? "Saving…" : "Save profile")</button>
+            <button class="btn btn-outline-secondary" @onclick="NewProfile">Reset</button>
+            @if (_editingId.HasValue)
+            {
+                <button class="btn btn-outline-danger ms-auto" @onclick="Delete">Delete</button>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private static readonly EventSeverity[] SeverityOptions = [EventSeverity.Critical, EventSeverity.Error, EventSeverity.Warning, EventSeverity.Information, EventSeverity.Verbose];
+    private readonly CancellationTokenSource _dispose = new();
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private Task? _statusTask;
+    private List<ProfileSummary> _profiles = [];
+    private ProfileForm _form = new();
+    private Guid? _editingId;
+    private bool _loading = true;
+    private bool _saving;
+    private bool _workerOnline;
+    private string _workerDetail = "Connecting to the local worker…";
+    private string? _error;
+    private string? _formError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+        _statusTask = PollStatus(_dispose.Token);
+    }
+
+    private async Task PollStatus(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(UiOptions.Value.ProfileStatusPollInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await Refresh();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    }
+
+    private async Task Refresh()
+    {
+        await _refreshGate.WaitAsync(_dispose.Token);
+        try
+        {
+            await RefreshStatus(_dispose.Token);
+            _profiles = (await Api.GetProfilesAsync(_dispose.Token)).ToList();
+            _error = null;
+        }
+        catch (OperationCanceledException) when (_dispose.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _workerOnline = false;
+            _workerDetail = "Start EventLens.Worker to manage profiles.";
+            _error = $"The worker API could not be reached. {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+            _refreshGate.Release();
+        }
+    }
+
+    private async Task RefreshStatus(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var status = await Api.GetStatusAsync(cancellationToken);
+            _workerOnline = status?.Available == true;
+            _workerDetail = status is null ? "No status received." : $"{status.EnabledProfiles} enabled · started {status.StartedAtUtc.LocalDateTime:g}";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch
+        {
+            _workerOnline = false;
+            _workerDetail = "Start EventLens.Worker to manage profiles.";
+        }
+    }
+
+    private void NewProfile()
+    {
+        _editingId = null;
+        _form = new ProfileForm();
+        _formError = null;
+    }
+
+    private void Edit(ProfileSummary profile)
+    {
+        _editingId = profile.Id;
+        _form = ProfileForm.From(profile);
+        _formError = null;
+    }
+
+    private async Task Toggle(ProfileSummary profile)
+    {
+        var input = new ProfileInput(profile.Name, !profile.IsEnabled, profile.Channel, profile.Provider,
+            profile.EventIds, profile.Severities, profile.PollingIntervalSeconds);
+        await RunMutation(() => Api.SaveProfileAsync(profile.Id, input));
+    }
+
+    private async Task Save()
+    {
+        if (!_form.TryCreateInput(out var input, out _formError)) return;
+        _saving = true;
+        try
+        {
+            await Api.SaveProfileAsync(_editingId, input!);
+            NewProfile();
+            await Refresh();
+        }
+        catch (Exception ex) { _formError = ex.Message; }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete()
+    {
+        if (!_editingId.HasValue) return;
+        await RunMutation(() => Api.DeleteProfileAsync(_editingId.Value));
+        NewProfile();
+    }
+
+    private async Task RunMutation(Func<Task> action)
+    {
+        try { await action(); await Refresh(); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private bool HasSeverity(EventSeverity severity) => _form.Severities.HasFlag(severity);
+    private void SetSeverity(EventSeverity severity, bool selected) =>
+        _form.Severities = selected ? _form.Severities | severity : _form.Severities & ~severity;
+
+    public async ValueTask DisposeAsync()
+    {
+        await _dispose.CancelAsync();
+        if (_statusTask is not null)
+            await _statusTask;
+        _dispose.Dispose();
+        _refreshGate.Dispose();
+    }
+
+    private sealed class ProfileForm
+    {
+        public string Name { get; set; } = "";
+        public bool IsEnabled { get; set; }
+        public string Channel { get; set; } = "Application";
+        public string? Provider { get; set; }
+        public string EventIds { get; set; } = "";
+        public EventSeverity Severities { get; set; } = EventSeverity.Critical | EventSeverity.Error | EventSeverity.Warning;
+        public int PollingIntervalSeconds { get; set; } = 30;
+
+        public static ProfileForm From(ProfileSummary profile) => new()
+        {
+            Name = profile.Name, IsEnabled = profile.IsEnabled, Channel = profile.Channel,
+            Provider = profile.Provider, EventIds = string.Join(", ", profile.EventIds),
+            Severities = profile.Severities, PollingIntervalSeconds = profile.PollingIntervalSeconds
+        };
+
+        public bool TryCreateInput(out ProfileInput? input, out string? error)
+        {
+            input = null;
+            error = null;
+            var ids = new List<int>();
+            foreach (var part in EventIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(part, out var id)) { error = $"'{part}' is not a valid event ID."; return false; }
+                ids.Add(id);
+            }
+            var candidate = new ProfileInput(Name, IsEnabled, Channel, Provider, ids, Severities, PollingIntervalSeconds);
+            var errors = ProfileRules.Validate(candidate);
+            if (errors.Count > 0) { error = errors.First().Value[0]; return false; }
+            input = candidate;
+            return true;
+        }
+    }
+}

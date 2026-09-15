@@ -1,0 +1,180 @@
+@page "/profiles/{ProfileId:guid}/findings"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject EventLensApiClient Api
+@inject IOptions<EventLensUiOptions> UiOptions
+
+<PageTitle>Findings · EventLens</PageTitle>
+
+<div class="page-heading compact">
+    <div>
+        <a class="back-link" href="/">← Profiles</a>
+        <p class="eyebrow">Finding stream</p>
+        <h1>@(_profile?.Name ?? "Findings")</h1>
+        <p class="lede">Newest matches appear automatically while this page is open.</p>
+    </div>
+    @if (_profile is not null) { <StatusBadge Profile="_profile" /> }
+</div>
+
+@if (!string.IsNullOrEmpty(_error)) { <div class="alert alert-danger">@_error</div> }
+
+<section class="panel filter-panel">
+    <div class="panel-title"><div><span class="section-number">01</span><h2>Filter findings</h2></div></div>
+    <div class="filters">
+        <label class="field"><span>Severity</span><select class="form-select" @bind="_severity"><option value="">All levels</option>@foreach (var level in SeverityOptions) { <option value="@level">@level</option> }</select></label>
+        <label class="field"><span>Provider</span><input class="form-control" @bind="_provider" /></label>
+        <label class="field"><span>Event ID</span><input type="number" class="form-control" @bind="_eventId" /></label>
+        <label class="field message-filter"><span>Message text</span><input class="form-control" @bind="_message" /></label>
+        <button class="btn btn-primary align-self-end" @onclick="ApplyFilters">Apply</button>
+    </div>
+</section>
+
+<section class="panel findings-panel">
+    <div class="panel-title">
+        <div><span class="section-number">02</span><h2>Collected events</h2></div>
+        <div class="stream-meta">
+            <span class="live-indicator @(_error is null ? "connected" : "paused")"><span class="status-dot"></span>@LiveLabel</span>
+            <span class="result-count">@_items.Count shown</span>
+        </div>
+    </div>
+    @if (_loading)
+    {
+        <p class="empty-state">Loading findings…</p>
+    }
+    else if (_items.Count == 0)
+    {
+        <div class="empty-state"><strong>No matching findings.</strong><span>New events will appear after the worker collects them.</span></div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="findings-table">
+                <thead><tr><th>Event time</th><th>Severity</th><th>Provider</th><th>ID</th><th>Message</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr>
+                            <td class="timestamp">@item.EventTimestampUtc.LocalDateTime.ToString("g")</td>
+                            <td><span class="severity-pill @item.Severity.ToString().ToLowerInvariant()">@item.Severity</span></td>
+                            <td>@(item.Provider ?? "—")</td><td class="event-id">@item.EventId</td>
+                            <td class="message-summary">@Summarize(item.Message)</td>
+                            <td><a class="row-link" href="@($"/findings/{item.Id}")" aria-label="Open finding">→</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter] public Guid ProfileId { get; set; }
+    private static readonly EventSeverity[] SeverityOptions = [EventSeverity.Critical, EventSeverity.Error, EventSeverity.Warning, EventSeverity.Information, EventSeverity.Verbose];
+    private readonly CancellationTokenSource _dispose = new();
+    private readonly SemaphoreSlim _loadGate = new(1, 1);
+    private Task? _pollTask;
+    private ProfileSummary? _profile;
+    private List<FindingSummary> _items = [];
+    private long _cursor;
+    private string _severity = "";
+    private string? _provider;
+    private int? _eventId;
+    private string? _message;
+    private string _appliedSeverity = "";
+    private string? _appliedProvider;
+    private int? _appliedEventId;
+    private string? _appliedMessage;
+    private bool _loading = true;
+    private string? _error;
+    private DateTimeOffset? _lastCheckedAt;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadInitial();
+        _pollTask ??= Poll(_dispose.Token);
+    }
+
+    private async Task LoadInitial()
+    {
+        await _loadGate.WaitAsync(_dispose.Token);
+        try
+        {
+            _profile = await Api.GetProfileAsync(ProfileId, _dispose.Token);
+            var page = await Api.GetFindingsAsync(ProfileId, severity: AppliedSeverity, provider: _appliedProvider, eventId: _appliedEventId, message: _appliedMessage, cancellationToken: _dispose.Token);
+            _items = page.Items.OrderByDescending(x => x.Id).ToList();
+            _cursor = page.LatestCursor;
+            _lastCheckedAt = DateTimeOffset.Now;
+            _error = null;
+        }
+        catch (OperationCanceledException) when (_dispose.IsCancellationRequested) { throw; }
+        catch (Exception ex) { _error = $"Could not load findings. {ex.Message}"; }
+        finally
+        {
+            _loading = false;
+            _loadGate.Release();
+        }
+    }
+
+    private async Task Poll(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(UiOptions.Value.FindingsPollInterval);
+        var ticks = 0;
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await _loadGate.WaitAsync(cancellationToken);
+                try
+                {
+                    var page = await Api.GetFindingsAsync(ProfileId, _cursor, AppliedSeverity, _appliedProvider, _appliedEventId, _appliedMessage, cancellationToken);
+                    if (page.Items.Count > 0)
+                    {
+                        var known = _items.Select(x => x.Id).ToHashSet();
+                        _items.AddRange(page.Items.Where(x => known.Add(x.Id)));
+                        _items = _items.OrderByDescending(x => x.Id).Take(500).ToList();
+                    }
+                    _cursor = page.LatestCursor;
+                    if (++ticks % 5 == 0)
+                        _profile = await Api.GetProfileAsync(ProfileId, cancellationToken);
+                    _lastCheckedAt = DateTimeOffset.Now;
+                    _error = null;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex) { _error = $"Live polling paused; stored findings are safe. {ex.Message}"; }
+                finally { _loadGate.Release(); }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    }
+
+    private async Task ApplyFilters()
+    {
+        _appliedSeverity = _severity;
+        _appliedProvider = string.IsNullOrWhiteSpace(_provider) ? null : _provider.Trim();
+        _appliedEventId = _eventId;
+        _appliedMessage = string.IsNullOrWhiteSpace(_message) ? null : _message.Trim();
+        _loading = true;
+        await LoadInitial();
+    }
+
+    private EventSeverity? AppliedSeverity => Enum.TryParse<EventSeverity>(_appliedSeverity, out var value) ? value : null;
+    private string LiveLabel => _error is null
+        ? _lastCheckedAt.HasValue ? $"Live · {_lastCheckedAt.Value:HH:mm:ss}" : "Connecting"
+        : "Polling paused";
+    private static string Summarize(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return "Message unavailable";
+        var oneLine = string.Join(' ', message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
+        return oneLine.Length <= 160 ? oneLine : oneLine[..157] + "…";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _dispose.CancelAsync();
+        if (_pollTask is not null)
+            await _pollTask;
+        _dispose.Dispose();
+        _loadGate.Dispose();
+    }
+}

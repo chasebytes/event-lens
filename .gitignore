@@ -361,3 +361,24 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# EventLens local persistence
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local ASP.NET Core data-protection keys
+key-*.xml
+
+# Local configuration and environment overrides
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Repository-local .NET CLI state used by isolated tooling
+.dotnet-cli/

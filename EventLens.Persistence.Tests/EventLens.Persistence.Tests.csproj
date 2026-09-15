@@ -15,4 +15,9 @@
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\EventLens.Core\EventLens.Core.csproj" />
+    <ProjectReference Include="..\EventLens.Persistence\EventLens.Persistence.csproj" />
+  </ItemGroup>
+
 </Project>

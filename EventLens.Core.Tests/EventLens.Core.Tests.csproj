@@ -15,4 +15,8 @@
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\EventLens.Core\EventLens.Core.csproj" />
+  </ItemGroup>
+
 </Project>

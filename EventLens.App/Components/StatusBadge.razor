@@ -1,0 +1,24 @@
+<span class="status-badge @CssClass"><span class="status-dot"></span>@Label</span>
+
+@code {
+    [Parameter, EditorRequired] public ProfileSummary Profile { get; set; } = default!;
+
+    private string Label => Profile.State switch
+    {
+        CollectionState.NeverRun => "Waiting for first poll",
+        CollectionState.Collecting => "Collecting",
+        CollectionState.Healthy => "Collecting normally",
+        CollectionState.Disabled => "Disabled",
+        CollectionState.AccessDenied => "Log access denied",
+        CollectionState.Failed => "Collection failed",
+        _ => Profile.State.ToString()
+    };
+
+    private string CssClass => Profile.State switch
+    {
+        CollectionState.Healthy => "healthy",
+        CollectionState.Collecting or CollectionState.NeverRun => "pending",
+        CollectionState.Disabled => "disabled",
+        _ => "failed"
+    };
+}

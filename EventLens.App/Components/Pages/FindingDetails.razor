@@ -1,0 +1,54 @@
+@page "/findings/{FindingId:long}"
+@rendermode InteractiveServer
+@inject EventLensApiClient Api
+
+<PageTitle>Finding details · EventLens</PageTitle>
+
+@if (_finding is null && _error is null)
+{
+    <p class="empty-state">Loading finding…</p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else
+{
+    <div class="page-heading compact">
+        <div>
+            <a class="back-link" href="@($"/profiles/{_finding!.ProfileId}/findings")">← @_finding.ProfileName</a>
+            <p class="eyebrow">Finding #@_finding.Id</p>
+            <h1>Event @_finding.EventId</h1>
+        </div>
+        <span class="severity-pill @_finding.Severity.ToString().ToLowerInvariant()">@_finding.Severity</span>
+    </div>
+
+    <section class="panel detail-panel">
+        <div class="detail-grid">
+            <div><span>Profile</span><strong>@_finding.ProfileName</strong></div>
+            <div><span>Channel</span><strong>@_finding.Channel</strong></div>
+            <div><span>Provider</span><strong>@(_finding.Provider ?? "Unavailable")</strong></div>
+            <div><span>Event ID / Record ID</span><strong>@_finding.EventId / @(_finding.RecordId?.ToString() ?? "Unavailable")</strong></div>
+            <div><span>Event timestamp</span><strong>@_finding.EventTimestampUtc.LocalDateTime.ToString("F")</strong></div>
+            <div><span>Collected</span><strong>@_finding.CollectedAtUtc.LocalDateTime.ToString("F")</strong></div>
+        </div>
+        <div class="content-block"><h2>Rendered message</h2><pre>@(_finding.Message ?? "Windows could not render a message for this event.")</pre></div>
+        <div class="content-block"><h2>Raw event XML</h2><pre class="xml">@_finding.RawXml</pre></div>
+    </section>
+}
+
+@code {
+    [Parameter] public long FindingId { get; set; }
+    private FindingDetail? _finding;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _finding = await Api.GetFindingAsync(FindingId);
+            if (_finding is null) _error = "Finding not found.";
+        }
+        catch (Exception ex) { _error = $"Could not load the finding. {ex.Message}"; }
+    }
+}

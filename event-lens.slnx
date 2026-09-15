@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/docs/">
+    <File Path="mvp.md" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="EventLens.Core.Tests/EventLens.Core.Tests.csproj" Id="8adab6d9-9930-4600-a512-54ae1c75950e" />
     <Project Path="EventLens.Persistence.Tests/EventLens.Persistence.Tests.csproj" Id="19387f18-f395-4118-9b1c-ab31a14d72ae" />
